@@ -2,7 +2,7 @@ name: FX Daily Alerts
 
 on:
   schedule:
-    - cron: "30 16 * * 1-5" # 18:30 SAST (UTC+2) on weekdays
+    - cron: "30 18 * * 1-5" # 20:30 SAST on weekdays
   workflow_dispatch: {}
 
 jobs:
