@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+
+# Local env & data
+.env
+data_fx/
+*.log
+
+# OS
+.DS_Store

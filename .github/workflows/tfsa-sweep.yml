@@ -1,0 +1,32 @@
+name: TFSA Sweep Summary
+
+on:
+  schedule:
+    - cron: "0 16 28-31 * *" # 18:00 SAST window, last 4 days of month
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run on month-end only
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          if [ "$(date -u -d 'tomorrow' +%d)" = "01" ]; then
+            MODE=tfsa python fx_daily_system.py
+          else
+            echo "Not month-end; skipping."
+          fi
