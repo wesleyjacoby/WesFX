@@ -1,0 +1,26 @@
+name: FX 4H Alerts
+
+on:
+  schedule:
+    # UTC times → 04:00 / 08:00 / 12:00 / 16:00 UTC == 06/10/14/18 SAST
+    - cron: "0 4,8,12,16 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance python-dotenv requests
+      - name: Run 4H alerts
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          python fx_4h_system.py
