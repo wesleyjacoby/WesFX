@@ -21,7 +21,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy yfinance
+          pip install pandas numpy yfinance requests
 
       - name: Send Telegram instruction
         env:
@@ -31,8 +31,9 @@ jobs:
           MONTHLY_CONTRIB: "1000"
         run: |
           python - <<'PY'
-          import os, json, urllib.request, urllib.parse, datetime as dt
+          import os, json, datetime as dt
           import numpy as np, pandas as pd, yfinance as yf
+          import requests
 
           SEATBELT_M = 10
           E1_CANDS = ["STXWDM.JO","SYGWD.JO","STX500.JO"]
@@ -63,7 +64,6 @@ jobs:
               df = ensure_utc_index(df)
               m = df["Close"].resample("ME").last().dropna().astype(float)
               m.name = ticker
-              # ensure unique month-end index
               return m[~m.index.duplicated(keep="last")]
 
           def scalar_or_nan(s, t):
@@ -82,7 +82,6 @@ jobs:
               t = common[-1]
               p1 = scalar_or_nan(e1,t); p2 = scalar_or_nan(e2,t)
               m1 = scalar_or_nan(ma1,t); m2 = scalar_or_nan(ma2,t)
-              # Risk-on if either equity above its 10M MA; early months (NaN MAs) default risk-on
               risk_on = (not np.isnan(m1) and not np.isnan(p1) and p1 >= m1) or \
                         (not np.isnan(m2) and not np.isnan(p2) and p2 >= m2) or \
                         (np.isnan(m1) and np.isnan(m2))
@@ -91,8 +90,35 @@ jobs:
               else:
                   return t, 0.0, 0.0, 1.0, "DEFENSIVE"
 
-          bot = os.environ["TELEGRAM_BOT_TOKEN"]
-          chat= os.environ["TELEGRAM_CHAT_ID"]
+          # ---- Telegram helpers (with safety & diagnostics) ----
+          def tg_get_me(base):
+              r = requests.get(f"{base}/getMe", timeout=20)
+              return r
+
+          def tg_send(base, chat_id, text):
+              r = requests.post(f"{base}/sendMessage",
+                                json={"chat_id": chat_id,
+                                      "text": text,
+                                      "parse_mode": "Markdown",
+                                      "disable_web_page_preview": True},
+                                timeout=20)
+              return r
+
+          token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+          chat  = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+          if not token or not chat:
+              raise SystemExit("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID GitHub secret.")
+
+          tg_base = f"https://api.telegram.org/bot{token}"
+
+          # Verify token before doing any work
+          r = tg_get_me(tg_base)
+          if r.status_code != 200:
+              raise SystemExit(f"Telegram getMe failed HTTP {r.status_code}. Check TELEGRAM_BOT_TOKEN. Body: {r.text}")
+          payload = r.json()
+          if not payload.get("ok"):
+              raise SystemExit(f"Telegram getMe returned ok=false. Body: {r.text}")
+
           start_year = os.getenv("START_YEAR","2006")
           contrib = float(os.getenv("MONTHLY_CONTRIB","1000"))
 
@@ -109,7 +135,8 @@ jobs:
           t, w1, w2, wb, regime = seatbelt_weights(e1,e2,b)
           r1, r2, rb = contrib*w1, contrib*w2, contrib*wb
 
-          now_sast = dt.datetime.utcnow() + dt.timedelta(hours=2)
+          # timezone-aware (UTC+2)
+          now_sast = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
           hdr_date = now_sast.strftime("%Y-%m-%d %H:%M") + " SAST"
 
           if wb == 0.0:
@@ -133,13 +160,12 @@ jobs:
                   f"• {syms['E2']}: R0 (0%)\\n"
               )
 
-          base = f"https://api.telegram.org/bot{bot}/sendMessage"
-          data = urllib.parse.urlencode({
-              "chat_id": chat,
-              "text": text,
-              "parse_mode": "Markdown",
-              "disable_web_page_preview": True
-          }).encode("utf-8")
-          with urllib.request.urlopen(urllib.request.Request(base, data=data), timeout=20) as resp:
-              print("Telegram sent:", json.loads(resp.read().decode()).get("ok", False))
+          r = tg_send(tg_base, chat, text)
+          if r.status_code != 200:
+              raise SystemExit(f"Telegram sendMessage failed HTTP {r.status_code}. Body: {r.text}")
+          resp = r.json()
+          ok = resp.get("ok", False)
+          print("Telegram sent:", ok)
+          if not ok:
+              raise SystemExit(f"Telegram sendMessage ok=false. Body: {r.text}")
           PY
